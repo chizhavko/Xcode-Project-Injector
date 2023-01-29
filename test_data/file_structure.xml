@@ -63,6 +63,7 @@
 				7BD23B4A2981AE9F00C0ADAE /* FileInjection */,
 				7BD23B492981AE9F00C0ADAE /* Products */,
 			);
+			path = Items;
 			sourceTree = "<group>";
 		};
 		7BD23B492981AE9F00C0ADAE /* Products */ = {

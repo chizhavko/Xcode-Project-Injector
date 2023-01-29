@@ -23,17 +23,17 @@ pub struct FileRaw {
 }
 
 pub fn parse_all_raw_folders(absolute_file_path: &str) -> Vec<FolderRaw> {
-    let project_structure_list = parse_project_plist_file(absolute_file_path);
-    parse_folders_structure(&project_structure_list)
+    let project_structure_list = parse_project_file(absolute_file_path);
+    parse_folders_raw_list(&project_structure_list)
 }
 
 pub fn parse_all_raw_files(absolute_file_path: &str) -> Vec<FileRaw> {
-    let project_structure_list = parse_project_plist_file(absolute_file_path);
-    parse_project_files_as_raw_string_list(&project_structure_list)
+    let project_structure_list = parse_project_file(absolute_file_path);
+    parse_files_raw_list(&project_structure_list)
 }
 
 // Folders
-fn parse_folders_structure(lines: &Vec<String>) -> Vec<FolderRaw> {
+fn parse_folders_raw_list(lines: &Vec<String>) -> Vec<FolderRaw> {
     let mut i = 0;
     let mut did_reach_section = false;
     let mut did_reach_group = false;
@@ -115,7 +115,7 @@ fn parse_single_group(lines: &Vec<String>, start_index: usize) -> Option<FolderR
 }
 
 // Files
-fn parse_project_files_as_raw_string_list(lines: &Vec<String>) -> Vec<FileRaw> {
+fn parse_files_raw_list(lines: &Vec<String>) -> Vec<FileRaw> {
     let mut result = vec![];
     let mut did_reach_section = false;
 
@@ -173,7 +173,7 @@ fn parse_single_file(line: &str) -> Option<FileRaw> {
 
 // Getting file
 
-fn parse_project_plist_file(absolute_file_path: &str) -> Vec<String> {
+fn parse_project_file(absolute_file_path: &str) -> Vec<String> {
     let result = std::fs::read_to_string(&absolute_file_path).expect("msg");
     let mut lines = vec![];
     for line in result.lines() {
@@ -211,6 +211,55 @@ mod tests {
                 }
             )
         )
+    }
+
+    #[test]
+    fn test_parse_single_file() {
+        {
+            let line = "7B3516B22984049B00348D3A /* ItemObject.m in Sources */ = {isa = PBXBuildFile; fileRef = 7B3516B02984049B00348D3A /* ItemObject.m */; };";
+            let result = parse_single_file(line);
+            assert_eq!(
+                result,
+                Some(
+                    FileRaw { 
+                        isa: "7B3516B22984049B00348D3A".to_string(),
+                        file_type: FileType::OBJC, 
+                        name: "ItemObject.m".to_string()
+                    }
+                )
+            )
+        }
+        { 
+            let line = "7B3516B22984049B00348D3A /* ItemObject.framework in Sources */ = {isa = PBXBuildFile; fileRef = 7B3516B02984049B00348D3A /* ItemObject.m */; };";
+            let result = parse_single_file(line);
+            assert_eq!(
+                result,
+                None
+            )
+        }
+    }
+
+    #[test]
+    fn test_parse_folders_structure() {
+        let path = "/Users/m.chizhavko/Documents/Development/xcode_project_extractor/test_data/file_structure.xml";
+        let lines = parse_project_file(path);
+        let folders = parse_folders_raw_list(&lines);
+        assert_eq!(folders.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_project_files_as_raw_string_list() {
+        let path = "/Users/m.chizhavko/Documents/Development/xcode_project_extractor/test_data/file_structure.xml";
+        let lines = parse_project_file(path);
+        let files = parse_files_raw_list(&lines);
+        assert_eq!(files.len(), 7);
+    }
+
+    #[test]
+    fn test_parse_project_file() {
+        let path = "/Users/m.chizhavko/Documents/Development/xcode_project_extractor/test_data/file_structure.xml";
+        let result = parse_project_file(path);
+        assert_eq!(result.len(), 385);
     }
 
     /*
