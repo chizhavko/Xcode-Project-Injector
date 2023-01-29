@@ -1,5 +1,6 @@
 
 mod parsers;
+mod utils;
 
 fn main() {
     println!("File parsing started");

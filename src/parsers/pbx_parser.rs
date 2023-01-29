@@ -1,3 +1,5 @@
+use crate::utils::string_utils::*;
+
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub enum FileType {
     OBJC,
@@ -12,6 +14,7 @@ pub struct FolderRaw {
     name: String,
     childs: Vec<String>,
 }
+
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub struct FileRaw {
     isa: String,
@@ -65,83 +68,53 @@ fn parse_folders_structure(lines: &Vec<String>) -> Vec<FolderRaw> {
     result
 }
 
-fn parse_single_group(lines: &Vec<String>, start_index: usize) -> Option<FolderRaw> {
-    let mut name = String::new();
-    let mut isa = String::new();
-    let mut childs = vec![];
-
+fn combine_group_into_single_line(lines: &Vec<String>, start_index: usize) -> String {
+    let mut combined_line = String::new();
     let mut i = start_index;
     
     while i < lines.len() {
         let line = lines[i].trim();
+        combined_line += line;
 
-        if line.contains("}") {
-            break;
-        }
-
-        if i == start_index {
-            // parse ISA 
-            let parsed_isa = string_slice_from_start(" /", &line);
-            if parsed_isa.len() != line.len() {
-                isa = parsed_isa;
-            } else {
-                return None;
-            }
-        }
-        
-        if line.contains("children") {
-            // parse childrens
-            childs = parse_group_childs(lines, i);
-        }
-
-        if line.contains("path") {
-            // parse name
-            let parsed_name = string_slice_from_pattern(" = ",";", &line);
-            if parsed_name.len() != line.len() {
-                name = parsed_name;
-            } else {
-                return None;
-            }
+        if line.contains("};") {
+            return combined_line;
         }
 
         i += 1;
     }
 
-    if name.is_empty() || isa.is_empty() {
+    combined_line
+}
+
+fn parse_single_group(lines: &Vec<String>, start_index: usize) -> Option<FolderRaw> {
+    let group_string = combine_group_into_single_line(lines, start_index);
+    let isa = string_slice_from_start(" = {", &group_string);
+    let name = string_slice_from_pattern("path = ", ";", &group_string);
+    let childs_string = string_slice_from_pattern("children = (", ");", &group_string);
+    let childs = childs_string
+        .split(",")
+        .map(|item| string_slice_from_start(" /* ", item).to_string())
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<String>>();
+
+    let line_len = group_string.len();
+
+    if isa.len() == line_len || isa.is_empty() && 
+        name.len() == line_len  || name.is_empty() {
         return None;
     }
 
     Some(
         FolderRaw {
-            isa: isa,
+            isa: isa.to_string(),
+            name: name.to_string(),
             file_type: FileType::FOLDER,
-            name: name,
-            childs: childs,
+            childs:childs
         }
     )
-
-}
-
-fn parse_group_childs(lines: &Vec<String>, start_index: usize) -> Vec<String> {
-    let mut i = start_index + 1;
-    let mut container: Vec<String> = vec![];
-
-    loop {
-        let line = &lines[i];
-
-        if line.contains(")") {
-            return container;
-        } else {
-            let item_id = string_slice_from_start(" /*", line);
-            container.push(item_id.trim().to_string());
-        }
-        
-        i += 1;
-    }
 }
 
 // Files
-
 fn parse_project_files_as_raw_string_list(lines: &Vec<String>) -> Vec<FileRaw> {
     let mut result = vec![];
     let mut did_reach_section = false;
@@ -191,9 +164,9 @@ fn parse_single_file(line: &str) -> Option<FileRaw> {
 
     Some(
         FileRaw {
-            isa: isa, 
+            isa: isa.to_string(), 
             file_type: file_type,
-            name: name
+            name: name.to_string()
         }
     )
 }
@@ -209,14 +182,49 @@ fn parse_project_plist_file(absolute_file_path: &str) -> Vec<String> {
     lines
 }
 
-/// UTILS
 
-fn string_slice_from_pattern(from: &str, to: &str, line: &str) -> String {
-    let start_bytes = line.find(from).unwrap_or(0) + from.len();
-    let end_bytes = line.find(to).unwrap_or(line.len());
-    line[start_bytes..end_bytes].to_string()
-}
-fn string_slice_from_start(to: &str, line: &str) -> String {
-    let end_bytes = line.find(to).unwrap_or(line.len());
-    line[0..end_bytes].to_string()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_combine_group_into_single_line() {
+        let lines: Vec<String> = group_lines();
+        let expected_string = "7BD23B3E2981AE9F00C0ADAE = {isa = PBXGroup;children = (7BD23B4A2981AE9F00C0ADAE /* FileInjection */,7BD23B492981AE9F00C0ADAE /* Products */,);path = Items;sourceTree = \"<group>\";};";
+        let result = combine_group_into_single_line(&lines, 0);
+
+        assert_eq!(result, expected_string);
+    }
+
+    #[test]
+    fn test_parse_single_group() {
+        let lines = group_lines();
+        let result = parse_single_group(&lines, 0);
+        assert_eq!(
+            result, 
+            Some(
+                FolderRaw {
+                    isa: "7BD23B3E2981AE9F00C0ADAE".to_string(),
+                    file_type: FileType::FOLDER,
+                    name: "Items".to_string(),
+                    childs: vec!["7BD23B4A2981AE9F00C0ADAE".to_string(), "7BD23B492981AE9F00C0ADAE".to_string()]
+                }
+            )
+        )
+    }
+
+    /*
+        7BD23B3E2981AE9F00C0ADAE = {
+			isa = PBXGroup;
+			children = (
+				7BD23B4A2981AE9F00C0ADAE /* FileInjection */,
+				7BD23B492981AE9F00C0ADAE /* Products */,
+			);
+            path = Items;
+			sourceTree = "<group>";
+		};
+    */
+    fn group_lines() -> Vec<String> {
+        vec!["7BD23B3E2981AE9F00C0ADAE = {".to_string(), "  isa = PBXGroup; ".to_string(), "children = (  ".to_string(), "7BD23B4A2981AE9F00C0ADAE /* FileInjection */, ".to_string(), "7BD23B492981AE9F00C0ADAE /* Products */,".to_string(), ");".to_string(), "path = Items;".to_string(), "sourceTree = \"<group>\";".to_string(), "};".to_string()]
+    }
 }
