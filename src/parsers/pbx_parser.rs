@@ -1,4 +1,5 @@
 use crate::utils::string_utils::*;
+use std::{collections::HashMap, hash::Hash};
 
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub enum FileType {
@@ -9,35 +10,35 @@ pub enum FileType {
 }
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub struct FolderRaw {
-    isa: String,
-    file_type: FileType,
-    name: String,
-    childs: Vec<String>,
+    pub isa: String,
+    pub file_type: FileType,
+    pub name: String,
+    pub childs: Vec<String>,
 }
 
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub struct FileRaw {
-    isa: String,
-    file_type: FileType,
-    name: String,
+    pub isa: String,
+    pub file_type: FileType,
+    pub name: String,
 }
 
-pub fn parse_all_raw_folders(absolute_file_path: &str) -> Vec<FolderRaw> {
+pub fn parse_all_raw_folders(absolute_file_path: &str) -> HashMap<String, FolderRaw> {
     let project_structure_list = parse_project_file(absolute_file_path);
     parse_folders_raw_list(&project_structure_list)
 }
 
-pub fn parse_all_raw_files(absolute_file_path: &str) -> Vec<FileRaw> {
+pub fn parse_all_raw_files(absolute_file_path: &str) -> HashMap<String, FileRaw> {
     let project_structure_list = parse_project_file(absolute_file_path);
     parse_files_raw_list(&project_structure_list)
 }
 
 // Folders
-fn parse_folders_raw_list(lines: &Vec<String>) -> Vec<FolderRaw> {
+fn parse_folders_raw_list(lines: &Vec<String>) -> HashMap<String, FolderRaw> {
     let mut i = 0;
     let mut did_reach_section = false;
     let mut did_reach_group = false;
-    let mut result = vec![];
+    let mut result: HashMap<String, FolderRaw> = HashMap::new();
 
     while i < lines.len() {
         let line = &lines[i];
@@ -57,7 +58,7 @@ fn parse_folders_raw_list(lines: &Vec<String>) -> Vec<FolderRaw> {
 
         if did_reach_section && did_reach_group {
             if let Some(folder) = parse_single_group(lines, i) {
-                result.push(folder);
+                result.insert(folder.isa.clone(), folder);
             }
             did_reach_group = false;
         }
@@ -88,7 +89,7 @@ fn combine_group_into_single_line(lines: &Vec<String>, start_index: usize) -> St
 
 fn parse_single_group(lines: &Vec<String>, start_index: usize) -> Option<FolderRaw> {
     let group_string = combine_group_into_single_line(lines, start_index);
-    let isa = string_slice_from_start(" = {", &group_string);
+    let isa = string_slice_from_start(" /* ", &group_string);
     let name = string_slice_from_pattern("path = ", ";", &group_string);
     let childs_string = string_slice_from_pattern("children = (", ");", &group_string);
     let childs = childs_string
@@ -115,8 +116,9 @@ fn parse_single_group(lines: &Vec<String>, start_index: usize) -> Option<FolderR
 }
 
 // Files
-fn parse_files_raw_list(lines: &Vec<String>) -> Vec<FileRaw> {
-    let mut result = vec![];
+fn parse_files_raw_list(lines: &Vec<String>) -> HashMap<String, FileRaw> {
+    let mut result: HashMap<String, FileRaw> = HashMap::new();
+
     let mut did_reach_section = false;
 
     for i in 0..lines.len() {
@@ -133,7 +135,7 @@ fn parse_files_raw_list(lines: &Vec<String>) -> Vec<FileRaw> {
 
         if did_reach_section {
             if let Some(file) = parse_single_file(line.trim()) {
-                result.push(file);
+                result.insert(file.isa.clone(), file);
             }
         }
     }
@@ -141,7 +143,7 @@ fn parse_files_raw_list(lines: &Vec<String>) -> Vec<FileRaw> {
 }
 
 fn parse_single_file(line: &str) -> Option<FileRaw> {
-    let isa = string_slice_from_start(" /* ", line);
+    let isa = string_slice_from_pattern("fileRef = ", " /* ", line);
     let name = string_slice_from_pattern(" /* ", " in", line);
     let file_type = if name.contains(".m") || name.contains(".h") { 
         FileType::OBJC 
@@ -188,9 +190,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_all_raw_files() {
+        let path = "/Users/m.chizhavko/Documents/Development/xcode_project_extractor/test_data/file_structure.xml";
+        let result = parse_all_raw_files(path);
+        assert_eq!(
+            *result.get("00077ED41D39CA620024B8D2").unwrap(),
+            FileRaw {
+                isa: "00077ED41D39CA620024B8D2".to_string(),
+                file_type: FileType::OBJC,
+                name: "SketchPreviewController.h".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn test_combine_group_into_single_line() {
         let lines: Vec<String> = group_lines();
-        let expected_string = "7BD23B3E2981AE9F00C0ADAE = {isa = PBXGroup;children = (7BD23B4A2981AE9F00C0ADAE /* FileInjection */,7BD23B492981AE9F00C0ADAE /* Products */,);path = Items;sourceTree = \"<group>\";};";
+        let expected_string = "7BD23B3E2981AE9F00C0ADAE /* Module */ = {isa = PBXGroup;children = (7BD23B4A2981AE9F00C0ADAE /* FileInjection */,7BD23B492981AE9F00C0ADAE /* Products */,);path = Items;sourceTree = \"<group>\";};";
         let result = combine_group_into_single_line(&lines, 0);
 
         assert_eq!(result, expected_string);
@@ -201,15 +217,13 @@ mod tests {
         let lines = group_lines();
         let result = parse_single_group(&lines, 0);
         assert_eq!(
-            result, 
-            Some(
-                FolderRaw {
-                    isa: "7BD23B3E2981AE9F00C0ADAE".to_string(),
-                    file_type: FileType::FOLDER,
-                    name: "Items".to_string(),
-                    childs: vec!["7BD23B4A2981AE9F00C0ADAE".to_string(), "7BD23B492981AE9F00C0ADAE".to_string()]
-                }
-            )
+            result.unwrap(), 
+            FolderRaw {
+                isa: "7BD23B3E2981AE9F00C0ADAE".to_string(),
+                file_type: FileType::FOLDER,
+                name: "Items".to_string(),
+                childs: vec!["7BD23B4A2981AE9F00C0ADAE".to_string(), "7BD23B492981AE9F00C0ADAE".to_string()]
+            }
         )
     }
 
@@ -219,14 +233,12 @@ mod tests {
             let line = "7B3516B22984049B00348D3A /* ItemObject.m in Sources */ = {isa = PBXBuildFile; fileRef = 7B3516B02984049B00348D3A /* ItemObject.m */; };";
             let result = parse_single_file(line);
             assert_eq!(
-                result,
-                Some(
-                    FileRaw { 
-                        isa: "7B3516B22984049B00348D3A".to_string(),
-                        file_type: FileType::OBJC, 
-                        name: "ItemObject.m".to_string()
-                    }
-                )
+                result.unwrap(),
+                FileRaw { 
+                    isa: "7B3516B02984049B00348D3A".to_string(),
+                    file_type: FileType::OBJC, 
+                    name: "ItemObject.m".to_string()
+                }
             )
         }
         { 
@@ -274,6 +286,6 @@ mod tests {
 		};
     */
     fn group_lines() -> Vec<String> {
-        vec!["7BD23B3E2981AE9F00C0ADAE = {".to_string(), "  isa = PBXGroup; ".to_string(), "children = (  ".to_string(), "7BD23B4A2981AE9F00C0ADAE /* FileInjection */, ".to_string(), "7BD23B492981AE9F00C0ADAE /* Products */,".to_string(), ");".to_string(), "path = Items;".to_string(), "sourceTree = \"<group>\";".to_string(), "};".to_string()]
+        vec!["7BD23B3E2981AE9F00C0ADAE /* Module */ = {".to_string(), "  isa = PBXGroup; ".to_string(), "children = (  ".to_string(), "7BD23B4A2981AE9F00C0ADAE /* FileInjection */, ".to_string(), "7BD23B492981AE9F00C0ADAE /* Products */,".to_string(), ");".to_string(), "path = Items;".to_string(), "sourceTree = \"<group>\";".to_string(), "};".to_string()]
     }
 }
